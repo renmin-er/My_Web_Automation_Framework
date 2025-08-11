@@ -1,6 +1,6 @@
 import pytest
 import os
-if __name__ == '_main_':
+if __name__ == '__main__':
     pytest.main([
         '-sv',
         './test_cases',
