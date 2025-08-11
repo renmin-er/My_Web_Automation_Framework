@@ -10,58 +10,64 @@ import os
 
 # ... (imports) ...
 
+# test_cases/test_01_search.py
+
 @pytest.fixture(scope="class")
-def class_fixture():  # 或者你的 fixture 名字，比如 search_page_fixture
+def class_fixture():  # 或者你的 fixture 名字
     """
-    这个 Fixture 负责创建和销毁浏览器实例和页面对象。
+    工业级健壮版的 Fixture
     """
-    print("\n--- [Fixture Setup] Creating browser and Page Object ---")
-    options = webdriver.ChromeOptions()
+    print("\n--- [Fixture Setup] Starting setup... ---")
+    driver = None  # 先初始化为 None
 
-    # ================= 关键的修复在这里！ =================
-    # 添加一个参数，忽略证书相关的错误
-    options.add_argument('--ignore-certificate-errors')
-    # 有时也需要下面这个参数
-    options.add_argument('--allow-insecure-localhost')
-    # =======================================================
+    try:
+        # --- 1. 启动浏览器，这是最可能出错的地方 ---
+        print("--- [Fixture Setup] Initializing Chrome WebDriver... ---")
+        options = webdriver.ChromeOptions()
+        # 忽略证书错误，这在CI环境中很重要
+        options.add_argument('--ignore-certificate-errors')
 
-    if os.getenv('IS_JENKINS') == 'true':
-        options.add_argument('--headless')
-        options.add_argument('--no-sandbox')
-        options.add_argument('--disable-dev-shm-usage')
-        options.add_argument('--window-size=1920,1080')
+        if os.getenv('IS_JENKINS') == 'true':
+            print("--- [Fixture Setup] Jenkins environment detected. Applying headless options... ---")
+            options.add_argument('--headless')
+            options.add_argument('--no-sandbox')
+            options.add_argument('--disable-dev-shm-usage')
+            options.add_argument('--window-size=1920,1080')
 
-    driver = webdriver.Chrome(options=options)
-    driver.maximize_window()
+        driver = webdriver.Chrome(options=options)
+        print("--- [Fixture Setup] WebDriver initialized successfully. ---")
 
-    # -----------------------------------------------------------
-    # 为了调试，我们可以在这里加一个断言，确保页面真的打开了
-    driver.get("https://www.baidu.com")
-    assert "百度" in driver.title, f"页面打开失败，当前标题是: {driver.title}"
-    print(f"成功打开页面，标题是: {driver.title}")
-    # -----------------------------------------------------------
+        driver.maximize_window()
 
-    search_page = SearchPage(driver)
+        # --- 2. 准备页面对象 ---
+        search_page = SearchPage(driver)
 
-    # 不同的 fixture 写法，返回不同的资源
-    # 如果你的测试用例是 def test_... (self, class_fixture):
-    yield (driver, search_page)
-    # 如果你的测试用例是 def test_... (self, search_page_fixture):
-    # yield search_page
+        # --- 3. 打开初始页面并验证 ---
+        print(f"--- [Fixture Setup] Opening URL: https://www.baidu.com ---")
+        driver.get("https://www.baidu.com")
+        assert "百度" in driver.title, f"FATAL: Failed to open Baidu. Current title: '{driver.title}'"
+        print(f"--- [Fixture Setup] Page opened successfully. Title: {driver.title} ---")
 
-    # --- Teardown ---
-    print("\n--- [Fixture Teardown] Closing browser ---")
-    time.sleep(2)
-    driver.quit()
+        # --- 4. 将准备好的资源传递出去 ---
+        yield (driver, search_page)
 
+    except Exception as e:
+        # 如果 try 块中任何一步出错（特别是 webdriver.Chrome()），就在这里捕获
+        print(f"\n!!!!!! FATAL ERROR in Fixture Setup !!!!!!")
+        print(f"Error Type: {type(e).__name__}")
+        print(f"Error Message: {e}")
+        # 抛出 pytest.fail，这将立即终止测试会话，并将构建标记为失败
+        pytest.fail("Fixture setup failed, see console output for details.", pytrace=False)
 
-# ... 你的测试类和测试方法 ...
-# 确保你的测试用例中不再调用 open_url，因为我们已经在 fixture 中打开了
-# def test_search_selenium(self, class_fixture):
-#     driver, search_page = class_fixture
-#     # with allure.step("第一步，打开百度首页"):
-#     #     search_page.open_url("https://www.baidu.com") # <--- 注释掉或删掉这行
-
+    finally:
+        # --- 5. 无论成功与否，都尝试清理资源 ---
+        print("\n--- [Fixture Teardown] Starting teardown... ---")
+        if driver:
+            time.sleep(2)
+            driver.quit()
+            print("--- [Fixture Teardown] WebDriver quit successfully. ---")
+        else:
+            print("--- [Fixture Teardown] No driver instance to quit. ---")
 
 @allure.feature("百度搜索功能")
 class TestBaiduSearch:
